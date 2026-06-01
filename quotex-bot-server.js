@@ -318,7 +318,125 @@ app.get('/api/trades', (req, res) => {
 app.get('/api/signals', (req, res) => {
   res.json(botState.signals.slice(-10));
 });
+// DASHBOARD ROUTE
+app.get('/', (req, res) => {
+  res.send(`<!DOCTYPE html>
+<html>
+<head>
+<title>Quotex Trading Bot</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; font-family: Arial; }
+body { background: #0a0a0a; color: #fff; }
+.header { background: #111; padding: 15px 20px; border-bottom: 1px solid #222; display: flex; justify-content: space-between; align-items: center; }
+.header h1 { color: #00ff88; font-size: 20px; }
+.balance { font-size: 24px; color: #00ff88; font-weight: bold; }
+.grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 15px; padding: 20px; }
+.card { background: #111; border: 1px solid #222; border-radius: 8px; padding: 15px; }
+.card h3 { color: #888; font-size: 12px; margin-bottom: 10px; }
+.signal { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1a1a1a; }
+.buy { color: #00ff88; } .sell { color: #ff4444; } .wait { color: #888; }
+.trade { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #1a1a1a; font-size: 13px; }
+.profit { color: #00ff88; } .loss { color: #ff4444; }
+.btn { padding: 12px 30px; border: none; border-radius: 6px; cursor: pointer; font-size: 16px; font-weight: bold; }
+.btn-start { background: #00ff88; color: #000; } .btn-stop { background: #ff4444; color: #fff; }
+.status { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; }
+.running { background: #00ff8822; color: #00ff88; border: 1px solid #00ff88; }
+.stopped { background: #ff444422; color: #ff4444; border: 1px solid #ff4444; }
+.controller { position: fixed; bottom: 30px; right: 30px; background: #111; border: 1px solid #333; border-radius: 12px; padding: 20px; cursor: move; z-index: 1000; min-width: 200px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+.controller h4 { color: #888; font-size: 11px; margin-bottom: 15px; letter-spacing: 2px; }
+.ctrl-btn { width: 80px; height: 80px; border: none; border-radius: 50%; font-size: 30px; cursor: pointer; margin: 5px; }
+.ctrl-up { background: #00ff88; } .ctrl-down { background: #ff4444; }
+.asset-select { background: #1a1a1a; color: #fff; border: 1px solid #333; padding: 6px; border-radius: 4px; width: 100%; margin-bottom: 10px; }
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>🤖 QUOTEX TRADING BOT</h1>
+  <div>
+    <span id="status" class="status stopped">● STOPPED</span>
+    <span style="margin-left:20px; font-size:13px; color:#888;">Balance: </span>
+    <span id="balance" class="balance">$10,000</span>
+  </div>
+</div>
+<div class="grid">
+  <div class="card">
+    <h3>📊 LIVE SIGNALS</h3>
+    <div id="signals"><div style="color:#555; text-align:center; margin-top:20px">Start bot to see signals...</div></div>
+  </div>
+  <div class="card">
+    <h3>💰 OPEN TRADES</h3>
+    <div id="open-trades"><div style="color:#555; text-align:center; margin-top:20px">No open trades</div></div>
+  </div>
+  <div class="card">
+    <h3>📈 TRADE HISTORY</h3>
+    <div id="trade-history"><div style="color:#555; text-align:center; margin-top:20px">No trades yet</div></div>
+  </div>
+</div>
+<div style="padding: 0 20px 20px; display:flex; gap:10px;">
+  <button class="btn btn-start" onclick="startBot()">▶ START BOT</button>
+  <button class="btn btn-stop" onclick="stopBot()">■ STOP BOT</button>
+</div>
+<div class="controller" id="controller">
+  <h4>⚡ CONTROLLER</h4>
+  <select id="asset" class="asset-select">
+    <option>EUR/USD</option><option>BTC/USD</option><option>GBP/USD</option>
+    <option>XAU/USD</option><option>SPX500</option>
+  </select>
+  <div>
+    <button class="ctrl-btn ctrl-up" onclick="manualTrade('BUY')">▲</button>
+  </div>
+  <div style="color:#888; font-size:11px; margin:5px 0;">UP = BUY | DOWN = SELL</div>
+  <div>
+    <button class="ctrl-btn ctrl-down" onclick="manualTrade('SELL')">▼</button>
+  </div>
+</div>
+<script>
+const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+const ws = new WebSocket(proto + '//' + location.host);
+let state = {};
+ws.onmessage = (e) => {
+  const data = JSON.parse(e.data);
+  if (data.state) state = data.state;
+  if (data.balance !== undefined || (data.state && data.state.balance !== undefined)) {
+    const bal = data.balance || (data.state && data.state.balance) || 10000;
+    document.getElementById('balance').textContent = '$' + bal.toFixed(2);
+  }
+  if (data.state && data.state.signals) updateSignals(data.state.signals);
+  if (data.state && data.state.trades) updateTrades(data.state.trades);
+  if (data.type === 'BOT_STARTED') { document.getElementById('status').textContent = '● RUNNING'; document.getElementById('status').className = 'status running'; }
+  if (data.type === 'BOT_STOPPED') { document.getElementById('status').textContent = '● STOPPED'; document.getElementById('status').className = 'status stopped'; }
+};
+function updateSignals(signals) {
+  if (!signals.length) return;
+  document.getElementById('signals').innerHTML = signals.slice(-8).reverse().map(s =>
+    '<div class="signal"><span>' + s.asset + '</span><span class="' + s.signal.toLowerCase() + '">' + s.signal + '</span><span style="color:#555">' + s.confidence + '%</span></div>'
+  ).join('');
+}
+function updateTrades(trades) {
+  const open = trades.filter(t => !t.closed);
+  const closed = trades.filter(t => t.closed);
+  document.getElementById('open-trades').innerHTML = open.length ? open.map(t =>
+    '<div class="trade"><span>' + t.asset + '</span><span class="' + t.type.toLowerCase() + '">' + t.type + '</span><span>' + t.entry.toFixed(4) + '</span></div>'
+  ).join('') : '<div style="color:#555; text-align:center; margin-top:10px">No open trades</div>';
+  document.getElementById('trade-history').innerHTML = closed.length ? closed.slice(-8).reverse().map(t =>
+    '<div class="trade"><span>' + t.asset + '</span><span class="' + (t.pnl >= 0 ? 'profit' : 'loss') + '">' + (t.pnl >= 0 ? '+' : '') + t.pnl.toFixed(0) + '</span></div>'
+  ).join('') : '<div style="color:#555; text-align:center; margin-top:10px">No trades yet</div>';
+}
+function startBot() { ws.send(JSON.stringify({type:'START_BOT'})); }
+function stopBot() { ws.send(JSON.stringify({type:'STOP_BOT'})); }
+function manualTrade(type) { ws.send(JSON.stringify({type:'MANUAL_TRADE', tradeType:type, asset:document.getElementById('asset').value})); }
+// Draggable controller
+const ctrl = document.getElementById('controller');
+let isDragging = false, startX, startY, startLeft, startBottom;
+ctrl.addEventListener('mousedown', (e) => { isDragging = true; startX = e.clientX; startY = e.clientY; startLeft = ctrl.offsetLeft; startBottom = parseInt(ctrl.style.bottom) || 30; });
+document.addEventListener('mousemove', (e) => { if (!isDragging) return; ctrl.style.left = (startLeft + e.clientX - startX) + 'px'; ctrl.style.right = 'auto'; ctrl.style.bottom = (startBottom - e.clientY + startY) + 'px'; });
+document.addEventListener('mouseup', () => isDragging = false);
+</script>
+</body>
+</html>`);
+});
 
+app.get('/dashboard', (req, res) => res.redirect('/'));
 // START SERVER
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
